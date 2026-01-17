@@ -1,4 +1,5 @@
 import argparse
+from wiki_classes import WikiDispatcher
 
 def validate_arguments(args, parser):
     """
@@ -145,6 +146,9 @@ def parse_arguments():
 
 def main():
     args = parse_arguments()
+
+    dispatcher = WikiDispatcher(args)
+    dispatcher.run()
     
 if __name__ == '__main__':
     main()
