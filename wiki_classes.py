@@ -13,7 +13,7 @@ class WikiArticle:
         self.html = html
         self.soup = BeautifulSoup(html, 'html.parser')
 
-    def get_summary(self):
+    def _get_div_content(self):
         #Some articles have an empty mw-parser-output
         #before the one with actual content
         div_content = self.soup.select_one(
@@ -25,7 +25,15 @@ class WikiArticle:
             div_content = self.soup.find('div', class_='mw-parser-output')
 
         if not div_content:
-            return 'Content not found' 
+            return None
+        
+        return div_content
+
+    def get_summary(self):
+        div_content = self._get_div_content()
+
+        if div_conent is None:
+            return 'Content not found'
 
         p = div_content.find('p', recursive=False)
 
@@ -33,6 +41,44 @@ class WikiArticle:
             return p.get_text().strip()
 
         return 'Summary not found'
+
+    def get_table(self, number, row_header):
+        div_content = self._get_div_content()
+
+        tables = div_content.find_all('table', limit=number)
+        
+        if len(tables) < number:
+            raise IndexError(f'Table index {number} out of range (found {len(tables)} tables).')
+
+        target = tables[number - 1]
+
+        data = []
+        rows = target.find_all('tr')
+
+        for row in rows:
+            row_data = []
+            cells = row.find_all(['th','td'])
+
+            for cell in cells:
+                row_data.append(cell.get_text(strip=True))
+
+            if row_data:
+                data.append(row_data)
+
+        if not data:
+            raise ValueError('Table is empty.')
+
+        df = pd.DataFrame(data)
+
+        if row_header:
+            new_header = df.iloc[0]
+            df = df[1:]
+            df.columns = new_header
+
+        if not df.empty:
+            df = df.set_index(df.columns[0])
+
+        return df
 
 class WikiScraper:
     """
@@ -111,6 +157,9 @@ class WikiDispatcher:
         if self.args.summary is not None:
             self.handle_summary()
 
+        if self.args.table is not None:
+            self.handle_table()
+
     def handle_summary(self):
         phrase = self.args.summary
 
@@ -124,3 +173,32 @@ class WikiDispatcher:
             print(article.get_summary())
         else:
             print(f'Summary error: Article "{phrase}" not found.')
+
+    def handle_table(self):
+        phrase = self.args.table
+
+        if not phrase.strip():
+            print("The phrase used for table is empty.")
+            return
+        
+        article = self.scraper.get_article(phrase)
+
+        if article:
+            try:
+                df = article.get_table(
+                    self.args.number, self.args.first_row_is_header
+                )
+                print(df)
+                filename = f'{phrase}.csv'
+                df.to_csv(filename)
+
+                occurence_table = df.stack().value_counts().to_frame('Count')
+                print(occurence_table)
+            except IndexError as e:
+                print(f"Error: {e}")
+            except ValueError as e:
+                print(f"Data Error: {e}")
+            except Exception as e:
+                print(f"Unexpected error: {e}")
+        else:
+            print(f'Table error: Article "{phrase}" not found.')
