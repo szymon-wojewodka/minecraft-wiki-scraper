@@ -2,6 +2,10 @@ import requests
 import os
 from bs4 import BeautifulSoup
 import pandas as pd
+import json
+import os
+import re
+from collections import Counter
 
 class WikiArticle:
     """
@@ -32,7 +36,7 @@ class WikiArticle:
     def get_summary(self):
         div_content = self._get_div_content()
 
-        if div_conent is None:
+        if div_content is None:
             return 'Content not found'
 
         p = div_content.find('p', recursive=False)
@@ -44,6 +48,9 @@ class WikiArticle:
 
     def get_table(self, number, row_header):
         div_content = self._get_div_content()
+
+        if div_content is None:
+            return 'Content not found'
 
         tables = div_content.find_all('table', limit=number)
         
@@ -79,6 +86,18 @@ class WikiArticle:
             df = df.set_index(df.columns[0])
 
         return df
+
+    def get_word_count(self):
+        div_content = self._get_div_content()
+
+        if div_content is None:
+            raise ValueError('Article content not found.')
+
+        text = div_content.get_text(' ', strip=True)
+        candidates = re.findall(r'\w+', text.lower())
+        words = [word for word in candidates if word.isalpha()]
+
+        return Counter(words)
 
 class WikiScraper:
     """
@@ -160,6 +179,9 @@ class WikiDispatcher:
         if self.args.table is not None:
             self.handle_table()
 
+        if self.args.count_words is not None:
+            self.handle_count_words()
+
     def handle_summary(self):
         phrase = self.args.summary
 
@@ -195,10 +217,50 @@ class WikiDispatcher:
                 occurence_table = df.stack().value_counts().to_frame('Count')
                 print(occurence_table)
             except IndexError as e:
-                print(f"Error: {e}")
+                print(f'Error: {e}')
             except ValueError as e:
-                print(f"Data Error: {e}")
+                print(f'Data Error: {e}')
             except Exception as e:
-                print(f"Unexpected error: {e}")
+                print(f'Unexpected error: {e}')
         else:
             print(f'Table error: Article "{phrase}" not found.')
+
+    def handle_count_words(self):
+        phrase = self.args.count_words
+
+        if not phrase.strip():
+            print('The phrase used for count_words is empty.')
+            return
+        
+        article = self.scraper.get_article(phrase)
+
+        if article:
+            try:
+                article_counts = article.get_word_count()
+                self._update_json(article_counts)
+            except ValueError as e:
+                print(f'Error: {e}')
+            except Exception as e:
+                print(f'Unexpected error: {e}')
+        else:
+            print(f'Count words error: Article "{phrase}" not found.')
+        
+    def _update_json(self, new_counts):
+        json_file = 'word-counts.json'
+        global_counts = Counter()
+
+        if os.path.exists(json_file):
+            try:
+                with open(json_file, 'r', encoding = 'utf-8') as f:
+                    data = json.load(f)
+                    global_counts = Counter(data)
+            except json.JSONDecodeError:
+                print('JSON file corrupted, creating new one')
+
+        updated_counts = global_counts + new_counts
+
+        try:
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(updated_counts, f, indent=4, ensure_ascii=False)
+        except IOError as e:
+            print(f"Error saving JSON file: {e}")

@@ -33,11 +33,8 @@ def validate_arguments(args, parser):
         parser.error('Arguments --analyze-relative-word-frequency, --mode and '
                      '--count form a set. Provide all of them or none.')
 
-    if has_analyze and not has_cw:
-        parser.error('Analyzing relative frequency requires --count-words.')
-
-    if has_chart and not (has_cw and has_analyze):
-        parser.error('Argument --chart requires --count-words, '
+    if has_chart and not has_analyze:
+        parser.error('Argument --chart requires '
                      '--analyze-relative-word-frequency, --mode and --count.')
 
     has_acw = args.auto_count_words is not None
