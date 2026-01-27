@@ -10,6 +10,7 @@ def validate_arguments(args, parser):
         args.summary,
         args.table,
         args.count_words,
+        args.analyze_relative_word_frequency,
         args.auto_count_words
     ]
 
