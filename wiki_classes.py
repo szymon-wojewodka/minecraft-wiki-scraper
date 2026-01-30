@@ -7,6 +7,7 @@ import re
 from collections import Counter
 import wordfreq
 import matplotlib.pyplot as plt
+import time
 
 class WikiArticle:
     """
@@ -109,7 +110,11 @@ class WikiArticle:
         links = []
         for a in div_content.find_all('a', href=True):
             href = a['href']
-            if href.startswith('/w/') and 
+            if href.startswith('/w/') and ':' not in href and '?' not in href:
+                phrase = href.replace('/w/', '').replace('_', ' ')
+                links.append(phrase)
+
+        return list(set(links))
 
 class WikiScraper:
     """
@@ -119,7 +124,6 @@ class WikiScraper:
     def __init__(self, base_url='https://minecraft.wiki/w', use_local_html_file_instead=False):
         self.url = base_url
         self.local_file = use_local_html_file_instead
-        self.cache = {}
         #Ensuring that url doesn't end with a slash
         if self.url.endswith('/'):
             self.url = self.url[:-1]
@@ -129,9 +133,6 @@ class WikiScraper:
         Fetches html and returns a WikiArticle object.
         Returns None if the article is not found.
         """
-        if phrase in self.cache:
-            return self.cache[phrase]
-
         html = self._get_html(phrase)
 
         if html:
@@ -175,9 +176,9 @@ class WikiDispatcher:
     Central controller for interpreting parsed arguments and dispatches
     execution to appropiate handler methods.
     """
-    def __init__(self, args):
+    def __init__(self, args, use_local=False):
         self.args = args
-        self.scraper = WikiScraper()
+        self.scraper = WikiScraper(use_local_html_file_instead = use_local)
 
     def run(self):
         """
@@ -185,20 +186,29 @@ class WikiDispatcher:
         specific handling methods.
         """
         if self.args.summary is not None:
-            self.handle_summary()
+            self.handle_summary(self.args.summary)
 
         if self.args.table is not None:
-            self.handle_table()
+            self.handle_table(
+                self.args.table,
+                self.args.number, 
+                self.args.first_row_is_header
+            )
 
         if self.args.count_words is not None:
-            self.handle_count_words()
+            self.handle_count_words(self.args.count_words)
 
         if self.args.analyze_relative_word_frequency:
-            self.handle_analyze()
+            self.handle_analyze(self.args.count, self.args.mode)
 
-    def handle_summary(self):
-        phrase = self.args.summary
+        if self.args.auto_count_words:
+            self.handle_auto_count(
+                self.args.auto_count_words,
+                self.args.depth,
+                self.args.wait_time
+            )
 
+    def handle_summary(self, phrase):
         if not phrase.strip():
             print("The phrase used for summary is empty.")
             return
@@ -210,9 +220,7 @@ class WikiDispatcher:
         else:
             print(f'Summary error: Article "{phrase}" not found.')
 
-    def handle_table(self):
-        phrase = self.args.table
-
+    def handle_table(self, phrase, number, first_row):
         if not phrase.strip():
             print("The phrase used for table is empty.")
             return
@@ -221,9 +229,7 @@ class WikiDispatcher:
 
         if article:
             try:
-                df = article.get_table(
-                    self.args.number, self.args.first_row_is_header
-                )
+                df = article.get_table(number, first_row)
                 print(df)
                 filename = f'{phrase}.csv'
                 df.to_csv(filename, encoding='utf-8')
@@ -239,9 +245,7 @@ class WikiDispatcher:
         else:
             print(f'Table error: Article "{phrase}" not found.')
 
-    def handle_count_words(self):
-        phrase = self.args.count_words
-
+    def handle_count_words(self, phrase):
         if not phrase.strip():
             print('The phrase used for count_words is empty.')
             return
@@ -279,7 +283,7 @@ class WikiDispatcher:
         except IOError as e:
             print(f"Error saving JSON file: {e}")
 
-    def handle_analyze(self):
+    def handle_analyze(self, n, mode):
         json_file = 'word-counts.json'
         if not os.path.exists(json_file):
             print("No data found, run --count-words first.")
@@ -296,12 +300,9 @@ class WikiDispatcher:
             print("Database is empty.")
             return
 
-        n = self.args.count
-        mode = self.args.mode
         language = 'en'
 
         final_data = []
-
 
         if mode == 'article':
             sorted_wiki = sorted(wiki_data.items(), key=lambda item: item[1], reverse=True)[:n]
@@ -363,5 +364,35 @@ class WikiDispatcher:
         plt.tight_layout()
         plt.savefig(filename)
 
-    def handle_auto_count(self):
+    def handle_auto_count(self, starth_phrase, max_depth, wait_time):
+        queue = [(start_phrase, 0)]
+        visited = set()
         
+        while len(queue) > 0:
+            phrase, current_depth = queue.pop(0)
+
+            norm_phrase = phrase.strip().lower()
+
+            if norm_phrase in visited:
+                continue
+
+            article = self.scraper.get_article(phrase)
+
+            if article:
+                try:
+                    article_counts = article.get_word_count()
+                    self._update_json(article_counts)
+                    visited.add(norm_phrase)
+
+                    if current_depth < max_depth:
+                        new_links = article.get_links()
+                        for link in new_links:
+                            if link.strip().lower() not in visited:
+                                queue.append((link, current_depth + 1))
+                except ValueError as e:
+                    print(f'Skipped "{phrase}" : {e}')
+                except Exception as e:
+                    print(f'Unexpected error: {e}')
+
+                if len(queue) > 0:
+                    time.sleep(wait_time)
