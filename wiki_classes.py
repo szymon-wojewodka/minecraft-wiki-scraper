@@ -137,7 +137,6 @@ class WikiScraper:
 
         if html:
             article = WikiArticle(phrase, html)
-            self.cache[phrase] = article
             return article
 
         return None
@@ -207,6 +206,8 @@ class WikiDispatcher:
                 self.args.depth,
                 self.args.wait_time
             )
+
+        print("\nProgram output generated based on articles from Minecraft Wiki (license CC BY-NC-SA 3.0).")
 
     def handle_summary(self, phrase):
         if not phrase.strip():
